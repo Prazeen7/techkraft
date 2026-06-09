@@ -2,6 +2,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 from sqlalchemy.orm import declarative_base
 import os
 from dotenv import load_dotenv
+from sqlalchemy import select 
 
 load_dotenv()
 
@@ -46,8 +47,8 @@ async def create_default_admin():
     from app.models import User
     from app.auth import get_password_hash
     
-    admin_email = os.getenv("admin@techkraft.com")
-    admin_password = os.getenv( "Admin123!")
+    admin_email = os.getenv("ADMIN_EMAIL")
+    admin_password = os.getenv( "ADMIN_PASSWORD")
     
     async with AsyncSessionLocal() as session:
         result = await session.execute(select(User).where(User.email == admin_email))

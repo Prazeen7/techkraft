@@ -8,4 +8,5 @@ aiosqlite
 pydantic
 pydantic-settings
 python-dotenv
-bcrypt
+bcrypt==4.1.2
+pydantic[email]
