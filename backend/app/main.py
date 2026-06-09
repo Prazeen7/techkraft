@@ -6,13 +6,13 @@ import os
 
 app = FastAPI(title="TechKraft Candidate Scoring API", version="1.0.0")
 
-# Configure CORS - Allow all for development
+# Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
     allow_credentials=True,
-    allow_methods=["*"],  
-    allow_headers=["*"],  
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Include routers
@@ -23,9 +23,13 @@ app.include_router(candidates.router)
 async def startup_event():
     """Initialize database on startup"""
     await init_db()
-    print(" Database initialized")
-    print(" CORS enabled for all origins (development mode)")
+    print("Database initialized")
 
 @app.get("/")
 async def root():
     return {"message": "TechKraft Candidate Scoring API", "status": "running"}
+
+# Add this health check endpoint
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}

@@ -10,3 +10,6 @@ pydantic-settings
 python-dotenv
 bcrypt==4.1.2
 pydantic[email]
+pytest 
+pytest-asyncio 
+httpx
