@@ -1,0 +1,18 @@
+# Virtual environment
+backend/recru/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environment variables
+.env.example
+
+# SQLite database
+*.db
+*.sqlite3
+
+# VS Code
+.vscode/
