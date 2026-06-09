@@ -28,7 +28,3 @@ async def startup_event():
 @app.get("/")
 async def root():
     return {"message": "TechKraft Candidate Scoring API", "status": "running"}
-
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy"}

@@ -10,6 +10,9 @@ from app.schemas import (
 )
 from app.services.candidate_service import CandidateService
 
+from fastapi.responses import StreamingResponse
+from typing import AsyncGenerator
+
 router = APIRouter(prefix="/candidates", tags=["candidates"])
 
 @router.get("", response_model=dict)
@@ -203,3 +206,73 @@ async def soft_delete_candidate(
         "message": "Candidate archived successfully",
         "candidate_id": candidate_id
     }
+
+@router.post("/{candidate_id}/summary")
+async def generate_ai_summary(
+    candidate_id: str,
+    current_user: User = Depends(get_current_reviewer),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Trigger mock AI summary generation.
+    Simulates an async LLM call with 2s delay.
+    """
+    # Verify candidate exists
+    candidate = await CandidateService.get_candidate_by_id(db, candidate_id)
+    if not candidate:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Candidate not found"
+        )
+    
+    try:
+        # Generate summary (includes 2 second delay)
+        summary = await CandidateService.generate_ai_summary(db, candidate_id)
+        
+        return {
+            "success": True,
+            "summary": summary,
+            "message": "AI summary generated successfully"
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate summary: {str(e)}"
+        )
+
+@router.get("/{candidate_id}/stream")
+async def stream_score_updates(
+    candidate_id: str,
+    current_user: User = Depends(get_current_reviewer),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    SSE endpoint that streams score updates in real-time.
+    Stretch goal: Shows real-time score updates as they happen.
+    """
+    # Verify candidate exists
+    candidate = await CandidateService.get_candidate_by_id(db, candidate_id)
+    if not candidate:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Candidate not found"
+        )
+    
+    # For reviewers, only stream their own scores
+    # For admins, stream all scores
+    reviewer_id = None if current_user.role == "admin" else current_user.id
+    
+    # Create streaming response
+    async def event_generator():
+        async for event in CandidateService.stream_score_updates(db, candidate_id, reviewer_id):
+            yield event
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"  # Disable buffering for nginx
+        }
+    )

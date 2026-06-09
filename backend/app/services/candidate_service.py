@@ -5,6 +5,10 @@ from app.models import Candidate, Score, User
 from app.schemas import CandidateCreate, ScoreCreate
 from typing import Optional, List, Tuple
 import uuid
+import asyncio
+import random
+from datetime import datetime
+from typing import Dict, Any
 
 class CandidateService:
     
@@ -188,3 +192,163 @@ class CandidateService:
         await db.commit()
         
         return True
+    
+    @staticmethod
+    async def generate_ai_summary(
+        db: AsyncSession,
+        candidate_id: str
+    ) -> Dict[str, Any]:
+        """
+        Mock AI summary generation with 2 second delay.
+        Simulates calling an external LLM API.
+        """
+        # Simulate 2 second delay (as required by requirements)
+        await asyncio.sleep(2)
+        
+        # Fetch candidate data
+        candidate = await CandidateService.get_candidate_by_id(db, candidate_id)
+        
+        if not candidate:
+            raise ValueError(f"Candidate {candidate_id} not found")
+        
+        # Fetch scores for this candidate
+        scores = await CandidateService.get_candidate_scores(db, candidate_id, reviewer_id=None)
+        
+        # Calculate average score if any scores exist
+        avg_score = None
+        if scores:
+            avg_score = sum(s.score for s in scores) / len(scores)
+        
+        # Generate mock AI summary based on candidate data
+        summary_templates = [
+            f"{candidate.name} demonstrates strong potential for the {candidate.role_applied} position. "
+            f"Technical skills in {', '.join(candidate.skills[:3]) if candidate.skills else 'software development'} "
+            f"{'and more' if len(candidate.skills) > 3 else ''} "
+            f"align well with our requirements.",
+            
+            f"Based on the assessment, {candidate.name} shows {'excellent' if avg_score and avg_score > 4 else 'good' if avg_score and avg_score > 3 else 'adequate'} "
+            f"performance across evaluated categories. "
+            f"The candidate's background in {candidate.skills[0] if candidate.skills else 'technology'} "
+            f"is particularly relevant for the {candidate.role_applied} role.",
+            
+            f"AI Analysis: {candidate.name} has {'strong' if len(candidate.skills) > 5 else 'solid'} technical foundations. "
+            f"Recommended for {'next round' if avg_score and avg_score > 3.5 else 'technical screening'} based on current evaluation data.",
+            
+            f"Summary for {candidate.name}: {'Experienced' if len(candidate.skills) > 4 else 'Emerging'} professional "
+            f"specializing in {candidate.skills[0] if candidate.skills else 'software development'}. "
+            f"Applied for {candidate.role_applied} position with {len(scores)} score{'s' if len(scores) != 1 else ''} recorded."
+        ]
+        
+        # Add score-based analysis if scores exist
+        score_analysis = ""
+        if scores and avg_score:
+            categories = list(set(s.category for s in scores))
+            if avg_score >= 4.5:
+                score_analysis = f" Outstanding performance with average score {avg_score:.1f}/5. "
+            elif avg_score >= 3.5:
+                score_analysis = f" Good performance with average score {avg_score:.1f}/5. "
+            elif avg_score >= 2.5:
+                score_analysis = f" Satisfactory performance with average score {avg_score:.1f}/5. "
+            else:
+                score_analysis = f" Needs improvement with average score {avg_score:.1f}/5. "
+            
+            if categories:
+                score_analysis += f" Evaluated in: {', '.join(categories)}."
+        
+        # Add skill recommendations
+        skill_recommendations = ""
+        if candidate.skills and len(candidate.skills) < 3:
+            skill_recommendations = f" Consider upskilling in additional areas like cloud computing or system design."
+        elif avg_score and avg_score < 3:
+            skill_recommendations = f" Recommend additional training in {candidate.skills[0] if candidate.skills else 'core technologies'}."
+        
+        # Generate final summary
+        base_summary = random.choice(summary_templates)
+        if score_analysis:
+            base_summary += score_analysis
+        if skill_recommendations:
+            base_summary += skill_recommendations
+        
+        return {
+            "candidate_id": candidate_id,
+            "candidate_name": candidate.name,
+            "email": candidate.email,
+            "role": candidate.role_applied,
+            "status": candidate.status,
+            "summary": base_summary,
+            "generated_at": datetime.utcnow().isoformat(),
+            "metrics": {
+                "total_scores": len(scores),
+                "average_score": round(avg_score, 2) if avg_score else None,
+                "categories_evaluated": list(set(s.category for s in scores)) if scores else [],
+                "skills_assessed": candidate.skills[:3] if candidate.skills else []
+            }
+        }                       
+
+
+    @staticmethod
+    async def stream_score_updates(
+        db: AsyncSession,
+        candidate_id: str,
+        reviewer_id: str = None
+    ):
+        """
+        Generator for SSE streaming of score updates.
+        This is a generator function for StreamingResponse.
+        """
+        import asyncio
+        import json
+        from sqlalchemy import select
+        from app.models import Score, User
+        
+        # Initial connection message
+        yield f"data: {json.dumps({'event': 'connected', 'data': f'Monitoring score updates for candidate {candidate_id}'})}\n\n"
+        
+        # Get initial scores
+        query = select(Score).where(Score.candidate_id == candidate_id)
+        if reviewer_id:
+            query = query.where(Score.reviewer_id == reviewer_id)
+        
+        result = await db.execute(query)
+        previous_scores = result.scalars().all()
+        previous_score_ids = {s.id for s in previous_scores}
+        
+        # Stream for 30 seconds (10 iterations * 3 seconds)
+        for i in range(10):
+            await asyncio.sleep(3)
+            await db.commit()
+            
+            # Check for new scores
+            result = await db.execute(query)
+            current_scores = result.scalars().all()
+            current_score_ids = {s.id for s in current_scores}
+            new_score_ids = current_score_ids - previous_score_ids
+            
+            if new_score_ids:
+                new_scores = [s for s in current_scores if s.id in new_score_ids]
+                for score in new_scores:
+                    reviewer_result = await db.execute(
+                        select(User).where(User.id == score.reviewer_id)
+                    )
+                    reviewer = reviewer_result.scalar_one_or_none()
+                    
+                    event_data = {
+                        'event': 'new_score',
+                        'data': {
+                            'id': score.id,
+                            'category': score.category,
+                            'score': score.score,
+                            'reviewer_id': score.reviewer_id,
+                            'reviewer_name': reviewer.full_name if reviewer else 'Unknown',
+                            'note': score.note,
+                            'timestamp': score.created_at.isoformat()
+                        }
+                    }
+                    yield f"data: {json.dumps(event_data)}\n\n"
+                
+                previous_score_ids = current_score_ids
+            else:
+                yield f"data: {json.dumps({'event': 'heartbeat', 'data': 'No new score updates'})}\n\n"
+        
+        # End of stream
+        yield f"data: {json.dumps({'event': 'end', 'data': 'Stream monitoring ended'})}\n\n"
