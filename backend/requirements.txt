@@ -8,3 +8,4 @@ aiosqlite
 pydantic
 pydantic-settings
 python-dotenv
+bcrypt
