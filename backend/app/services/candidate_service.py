@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Dict, Any
 
 class CandidateService:
-    
+
     @staticmethod
     async def get_candidates(
         db: AsyncSession,
@@ -25,8 +25,8 @@ class CandidateService:
         """
         Get candidates with filters and pagination.
         """
-        # Build query
-        query = select(Candidate).where(Candidate.deleted_at.is_(None))  # Soft delete filter
+        # Build base query
+        query = select(Candidate).where(Candidate.deleted_at.is_(None))
         
         # Apply filters at database level
         if status:
@@ -35,12 +35,7 @@ class CandidateService:
         if role_applied:
             query = query.where(Candidate.role_applied == role_applied)
         
-        if skill:
-            # JSON array search in SQLite
-            query = query.where(Candidate.skills.contains([skill]))
-        
         if keyword:
-            # Search in name, email, and role_applied
             keyword_filter = or_(
                 Candidate.name.ilike(f"%{keyword}%"),
                 Candidate.email.ilike(f"%{keyword}%"),
@@ -48,20 +43,27 @@ class CandidateService:
             )
             query = query.where(keyword_filter)
         
-        # Get total count for pagination
-        count_query = select(func.count()).select_from(query.subquery())
-        total = await db.execute(count_query)
-        total_count = total.scalar()
+        # Execute query
+        result = await db.execute(query.order_by(Candidate.created_at.desc()))
+        all_candidates = result.scalars().all()
+        
+        # Apply skill filter in Python with PARTIAL matching (case insensitive)
+        if skill and skill.strip():
+            skill_lower = skill.lower().strip()
+            all_candidates = [
+                c for c in all_candidates 
+                if any(skill_lower in s.lower() for s in c.skills)
+            ]
+            print(f"Skill filter '{skill}' matched {len(all_candidates)} candidates")  # Debug log
+        
+        # Get total count after filtering
+        total_count = len(all_candidates)
         
         # Apply pagination
         offset = (page - 1) * page_size
-        query = query.offset(offset).limit(page_size).order_by(Candidate.created_at.desc())
+        paginated_candidates = all_candidates[offset:offset + page_size]
         
-        # Execute query
-        result = await db.execute(query)
-        candidates = result.scalars().all()
-        
-        return candidates, total_count
+        return paginated_candidates, total_count
     
     @staticmethod
     async def get_candidate_by_id(
@@ -86,8 +88,6 @@ class CandidateService:
     ) -> List[Score]:
         """
         Get scores for a candidate.
-        If reviewer_id is provided, only return that reviewer's scores.
-        If None, return all scores (admin view).
         """
         query = select(Score).where(Score.candidate_id == candidate_id)
         

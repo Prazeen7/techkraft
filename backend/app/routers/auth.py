@@ -7,6 +7,12 @@ from app.models import User
 from app.schemas import UserRegister, UserLogin, Token, UserResponse
 from app.auth import authenticate_user, create_access_token, get_password_hash, get_user_by_email
 from typing import List
+import uuid
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
@@ -15,30 +21,36 @@ async def register(user_data: UserRegister, db: AsyncSession = Depends(get_db)):
     """
     Register a new user.
     IMPORTANT: Role is ALWAYS set to "reviewer" - never accepted from client.
-    Admin accounts must be created via admin endpoint or database seed.
     """
+    # Log the received data
+    logger.info(f"Received registration request")
+    logger.info(f"Email: {user_data.email}")
+    logger.info(f"Full name: {user_data.full_name}")
+    logger.info(f"Password length: {len(user_data.password)}")
+    
     # Check if user already exists
     existing_user = await get_user_by_email(db, user_data.email)
     if existing_user:
+        logger.warning(f"User already exists: {user_data.email}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered"
         )
     
-    from app.auth import get_password_hash
-    import uuid
-    
+    # Create new user - role is HARDCODED to "reviewer"
     new_user = User(
         id=str(uuid.uuid4()),
         email=user_data.email,
         password_hash=get_password_hash(user_data.password),
         full_name=user_data.full_name,
-        role="reviewer" 
+        role="reviewer"
     )
     
     db.add(new_user)
     await db.commit()
     await db.refresh(new_user)
+    
+    logger.info(f"User created successfully: {new_user.id}")
     
     # Create access token
     access_token = create_access_token(data={"sub": new_user.id})

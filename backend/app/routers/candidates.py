@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
+from datetime import datetime
 from app.database import get_db
 from app.dependencies import get_current_user, get_current_admin, get_current_reviewer
 from app.models import User
@@ -42,7 +43,6 @@ async def get_candidates(
     # Convert to response schemas
     candidate_responses = []
     for candidate in candidates:
-        # Only show internal_notes if user is admin
         if current_user.role != "admin":
             candidate.internal_notes = None
         
@@ -131,7 +131,6 @@ async def submit_score(
 ):
     """
     Submit a score for a candidate.
-    Accessible by reviewers and admins.
     """
     # Verify candidate exists
     candidate = await CandidateService.get_candidate_by_id(db, candidate_id)
@@ -141,7 +140,72 @@ async def submit_score(
             detail="Candidate not found"
         )
     
-    # Create score
+    # Handle system operations (admin only)
+    if score_data.category.startswith("__"):
+        if current_user.role != "admin":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Admin access required for system operations"
+            )
+        
+        # Update internal notes
+        if score_data.category == "__internal_notes__":
+            candidate.internal_notes = score_data.note
+            await db.commit()
+            return ScoreResponse(
+                id="system",
+                candidate_id=candidate_id,
+                category="internal_notes",
+                score=0,
+                reviewer_id=current_user.id,
+                reviewer_name=current_user.full_name,
+                note=f"Internal notes updated",
+                created_at=datetime.utcnow()
+            )
+        
+        # Update status
+        elif score_data.category == "__status__":
+            valid_statuses = ["new", "reviewed", "hired", "rejected"]
+            if score_data.note not in valid_statuses:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid status. Must be one of: {', '.join(valid_statuses)}"
+                )
+            candidate.status = score_data.note
+            await db.commit()
+            return ScoreResponse(
+                id="system",
+                candidate_id=candidate_id,
+                category="status_update",
+                score=0,
+                reviewer_id=current_user.id,
+                reviewer_name=current_user.full_name,
+                note=f"Status changed to {score_data.note}",
+                created_at=datetime.utcnow()
+            )
+        
+        # Soft delete (archive)
+        elif score_data.category == "__archive__":
+            candidate.status = "archived"
+            candidate.deleted_at = datetime.utcnow()
+            await db.commit()
+            return ScoreResponse(
+                id="system",
+                candidate_id=candidate_id,
+                category="archive",
+                score=0,
+                reviewer_id=current_user.id,
+                reviewer_name=current_user.full_name,
+                note="Candidate archived",
+                created_at=datetime.utcnow()
+            )
+        
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unknown system operation"
+        )
+    
+    # Regular score submission
     score = await CandidateService.create_score(
         db=db,
         candidate_id=candidate_id,
@@ -160,52 +224,6 @@ async def submit_score(
         created_at=score.created_at
     )
 
-@router.put("/{candidate_id}/notes")
-async def update_internal_notes(
-    candidate_id: str,
-    notes: str,
-    current_user: User = Depends(get_current_admin),
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Update internal notes (Admin only).
-    """
-    candidate = await CandidateService.update_candidate_notes(db, candidate_id, notes)
-    
-    if not candidate:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Candidate not found"
-        )
-    
-    return {
-        "message": "Internal notes updated successfully",
-        "candidate_id": candidate_id,
-        "notes": candidate.internal_notes
-    }
-
-@router.delete("/{candidate_id}")
-async def soft_delete_candidate(
-    candidate_id: str,
-    current_user: User = Depends(get_current_admin),
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Soft delete a candidate (Admin only).
-    Sets deleted_at timestamp and status to 'archived'.
-    """
-    success = await CandidateService.soft_delete_candidate(db, candidate_id)
-    
-    if not success:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Candidate not found"
-        )
-    
-    return {
-        "message": "Candidate archived successfully",
-        "candidate_id": candidate_id
-    }
 
 @router.post("/{candidate_id}/summary")
 async def generate_ai_summary(
@@ -273,6 +291,6 @@ async def stream_score_updates(
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"  # Disable buffering for nginx
+            "X-Accel-Buffering": "no"
         }
     )
