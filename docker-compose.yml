@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    container_name: techkraft-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///./candidates.db
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-this-in-production}
+      - ALGORITHM=${ALGORITHM:-HS256}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      - ADMIN_EMAIL=${FIRST_ADMIN_EMAIL:-admin@techkraft.com}
+      - ADMIN_PASSWORD=${FIRST_ADMIN_PASSWORD:-Admin123!}
+    volumes:
+      - ./backend:/app
+      - backend_data:/app/data
+    networks:
+      - techkraft-network
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    container_name: techkraft-frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+    networks:
+      - techkraft-network
+    restart: unless-stopped
+
+networks:
+  techkraft-network:
+    driver: bridge
+
+volumes:
+  backend_data:

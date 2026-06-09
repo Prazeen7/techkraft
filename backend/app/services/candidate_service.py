@@ -54,7 +54,6 @@ class CandidateService:
                 c for c in all_candidates 
                 if any(skill_lower in s.lower() for s in c.skills)
             ]
-            print(f"Skill filter '{skill}' matched {len(all_candidates)} candidates")  # Debug log
         
         # Get total count after filtering
         total_count = len(all_candidates)
@@ -202,7 +201,7 @@ class CandidateService:
         Mock AI summary generation with 2 second delay.
         Simulates calling an external LLM API.
         """
-        # Simulate 2 second delay (as required by requirements)
+        # Simulate 2 second delay
         await asyncio.sleep(2)
         
         # Fetch candidate data

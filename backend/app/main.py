@@ -9,7 +9,7 @@ app = FastAPI(title="TechKraft Candidate Scoring API", version="1.0.0")
 # Configure CORS - Allow all for development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  #
+    allow_origins=["*"],  
     allow_credentials=True,
     allow_methods=["*"],  
     allow_headers=["*"],  
