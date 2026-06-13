@@ -56,6 +56,24 @@ export const candidatesAPI = {
   getById: (id) => api.get(`/candidates/${id}`),
   submitScore: (id, scoreData) => api.post(`/candidates/${id}/scores`, scoreData),
   generateSummary: (id) => api.post(`/candidates/${id}/summary`),
+
+  updateNotes: (id, notes) => api.post(`/candidates/${id}/scores`, {
+    category: "__internal_notes__",
+    score: 1,
+    note: notes
+  }),
+
+  updateStatus: (id, status) => api.post(`/candidates/${id}/scores`, {
+    category: "__status__",
+    score: 1,
+    note: status
+  }),
+  
+  archive: (id) => api.post(`/candidates/${id}/scores`, {
+    category: "__archive__",
+    score: 1,
+    note: ""
+  })
 };
 
 export default api;
